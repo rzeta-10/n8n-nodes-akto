@@ -88,7 +88,6 @@ async function callApi(
 		body: payload,
 		json: true,
 		timeout: timeout * 1000,
-		skipSslCertificateValidation: false,
 	};
 	return (await ctx.helpers.httpRequestWithAuthentication.call(ctx, 'aktoApi', options)) as IDataObject;
 }
@@ -104,8 +103,12 @@ function makeItemData(
 	);
 }
 
-function readValidateField(ctx: IExecuteFunctions, safeName: string, field: string, i: number): unknown {
-	return ctx.evaluateExpression(`{{ $('${safeName}').item.json.${field} }}`, i);
+function readValidateField(ctx: IExecuteFunctions, nodeName: string, field: string, i: number): unknown {
+	if (!/^[a-zA-Z_]\w*$/.test(field)) {
+		return undefined;
+	}
+	const sanitizedName = nodeName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+	return ctx.evaluateExpression(`{{ $('${sanitizedName}').item.json.${field} }}`, i);
 }
 
 function extractWebhookInfo(item: IDataObject): { webhookHost: string; webhookPath: string; clientIp: string } {
@@ -125,7 +128,7 @@ export class AktoApi implements INodeType {
 		displayName: 'Akto',
 		name: 'aktoApi',
 		icon: 'file:../../icons/akto.svg',
-		group: ['transform'],
+		group: ['output'],
 		version: 1,
 		subtitle: '={{$parameter["operation"] === "guardrails" ? "Validate" : "Ingest"}}',
 		description: 'Run prompts through Akto Guardrails and ingest LLM interactions',
@@ -257,15 +260,14 @@ export class AktoApi implements INodeType {
 					target.push(...makeItemData(this, i, output));
 				} else {
 					const validateNodeName = this.getNodeParameter('validateNodeName', i) as string;
-					const safeName = validateNodeName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 					const response = this.getNodeParameter('response', i) as string;
 
-					const webhookHost = readValidateField(this, safeName, 'webhookHost', i) as string || 'n8n.io';
-					const webhookPath = readValidateField(this, safeName, 'webhookPath', i) as string || '/n8n/llm';
-					const clientIp = readValidateField(this, safeName, 'clientIp', i) as string || '';
-					const allowed = (readValidateField(this, safeName, 'allowed', i) as boolean) ?? true;
+					const webhookHost = readValidateField(this, validateNodeName, 'webhookHost', i) as string || 'n8n.io';
+					const webhookPath = readValidateField(this, validateNodeName, 'webhookPath', i) as string || '/n8n/llm';
+					const clientIp = readValidateField(this, validateNodeName, 'clientIp', i) as string || '';
+					const allowed = (readValidateField(this, validateNodeName, 'allowed', i) as boolean) ?? true;
 					const blocked = !allowed;
-					const reason = blocked ? ((readValidateField(this, safeName, 'reason', i) as string) ?? '') : '';
+					const reason = blocked ? ((readValidateField(this, validateNodeName, 'reason', i) as string) ?? '') : '';
 
 					const url = buildProxyUrl(dataIngestionUrl, { ingest_data: 'true' });
 					const payload = buildAktoRequest({
